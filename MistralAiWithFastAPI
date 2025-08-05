@@ -1,0 +1,89 @@
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import HTMLResponse, FileResponse
+import librosa
+import librosa.display
+import matplotlib.pyplot as plt
+import numpy as np
+import requests
+import shutil
+import os
+
+app = FastAPI()
+
+api_key = "R3gzwc9LrUWCLyetZnT5puBhreLVaMrF"
+
+def load_audio_file(file_path):
+    signal, sample_rate = librosa.load(file_path)
+    return signal, sample_rate
+
+def plot_spectrogram(signal, sample_rate):
+    plt.figure(figsize=(10, 4))
+    spectrogram = librosa.feature.melspectrogram(y=signal, sr=sample_rate)
+    librosa.display.specshow(librosa.power_to_db(spectrogram, ref=np.max),
+                             sr=sample_rate, x_axis='time', y_axis='mel')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title('Spectrogram')
+    plt.tight_layout()
+    plt.savefig("spectrogram.png")  # save figure for serving via FastAPI
+    plt.close()
+
+def ask_mistral(question):
+    url = "https://api.mistral.ai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "model": "mistral-small",
+        "messages": [{"role": "user", "content": question}]
+    }
+
+    response = requests.post(url, headers=headers, json=body)
+    if response.status_code == 200:
+        return response.json()['choices'][0]['message']['content']
+    else:
+        return f"Error: {response.status_code} - {response.text}"
+
+@app.get("/", response_class=HTMLResponse)
+def upload_form():
+    return """
+    <html>
+      <body>
+        <h2>Enter the path to your audio file (e.g., a Fairuz clip):</h2>
+        <form action="/analyze" method="post" enctype="multipart/form-data">
+          <input type="file" name="file" accept=".mp3,.wav" required><br><br>
+          <input type="submit" value="Analyze">
+        </form>
+      </body>
+    </html>
+    """
+
+
+@app.post("/analyze", response_class=HTMLResponse)
+async def analyze(file: UploadFile = File(...)):
+    file_path = f"{file.filename}"
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    signal, sample_rate = load_audio_file(file_path)
+    plot_spectrogram(signal, sample_rate)
+    os.remove(file_path)
+
+    question = "Explain what a spectrogram shows using Fairuz's voice as an example."
+    explanation = ask_mistral(question)
+
+    return f"""
+    <html>
+      <body>
+        <h2>Spectrogram generated and analyzed!</h2>
+        <img src="/spectrogram.png" width="700"><br><br>
+        <h3>Mistral's Explanation:</h3>
+        <p>{explanation}</p>
+        <a href="/">Upload another</a>
+      </body>
+    </html>
+    """
+
+@app.get("/spectrogram.png")
+def get_spectrogram():
+    return FileResponse("spectrogram.png", media_type="image/png")
