@@ -20,7 +20,7 @@ def plot_spectrogram(signal, sample_rate):
     plt.figure(figsize=(10, 4))
     spectrogram = librosa.feature.melspectrogram(y=signal, sr=sample_rate)
     librosa.display.specshow(librosa.power_to_db(spectrogram, ref=np.max),
-                             sr=sample_rate, x_axis='time', y_axis='mel')
+    sr=sample_rate, x_axis='time', y_axis='mel')
     plt.colorbar(format='%+2.0f dB')
     plt.title('Spectrogram')
     plt.tight_layout()
